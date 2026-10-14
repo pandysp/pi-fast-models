@@ -1,0 +1,51 @@
+{
+	"name": "pi-fast-models",
+	"version": "0.1.0",
+	"description": "Select GPT-6.1 Sol fast mode as a separate pi model, with allowance-adjusted cost estimates.",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/pandysp/pi-fast-models.git"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"extension",
+		"codex",
+		"fast-mode"
+	],
+	"files": [
+		"index.ts"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"scripts": {
+		"check": "tsc",
+		"test": "node test/e2e.mjs"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "1.2.0",
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@types/node": "^22",
+		"typescript": "^5.7"
+	},
+	"engines": {
+		"node": ">=22"
+	}
+}
