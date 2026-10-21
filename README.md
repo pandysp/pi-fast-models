@@ -43,7 +43,7 @@ The display always uses 2.5×. It therefore overstates the monetary surcharge if
 
 Each fast model is a pi virtual model that routes to the live normal model. The request hook adds `service_tier: "priority"`. The tested Codex endpoint rejects `"fast"` even though OpenAI's own CLI uses that spelling.
 
-The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model, so auto-compaction and the context meter work.
+The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model. Tests verify that switching preserves the live model limits. Automatic compaction and the context meter display have not been tested.
 
 Other extensions that also change service tiers or costs can conflict. Use one fast-mode extension at a time.
 
