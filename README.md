@@ -22,6 +22,8 @@ To keep fast mode in your model cycle, replace Sol's entry in `~/.pi/agent/setti
 "openai-codex/gpt-6.1-sol-fast:high"
 ```
 
+If you set `compaction.modelOverrides` for Sol, copy it to the fast ID too. Pi looks overrides up by the selected model.
+
 No `/fast` command or separate configuration. Only Sol is included; Astra and Anthropic models are unchanged.
 
 ## Cost display
@@ -55,7 +57,7 @@ npm test
 
 The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level, live limits after switching models with Ctrl+P, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. It also checks that an existing provider surcharge isn't applied twice. Temporary test files are removed afterward.
 
-In three alternating runs of a small file-writing task, the fast variant took **38.7 s** median versus **44.8 s** for ordinary Sol. This is a small speed test, not a quality comparison or a speed guarantee.
+In three alternating runs of a small file-writing task, the fast variant took **38.7 s** median versus **44.8 s** for ordinary Sol. This is a small speed test, not a quality comparison or a speed guarantee. The server reports `service_tier: "default"` in its replies even for priority requests, so the speed difference is the only sign that the tier applies.
 
 ## License
 
