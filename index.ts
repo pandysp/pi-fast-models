@@ -2,35 +2,39 @@ import { calculateCost, getSupportedThinkingLevels } from "@earendil-works/pi-ai
 import type { ExtensionAPI, ExtensionContext, ExtensionVirtualModel } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER = "openai-codex";
-const REAL = "gpt-6.1-sol";
-const FAST = `${REAL}-fast`;
+const MODELS = [
+	{ real: "gpt-6.1-sol", name: "GPT-6.1 Sol Fast" },
+	{ real: "gpt-6-astra", name: "GPT-6 Astra Fast" },
+];
 const ALLOWANCE_MULTIPLIER = 2.5;
 
-function realModel(ctx: ExtensionContext) {
-	const model = ctx.modelRegistry.find(PROVIDER, REAL);
-	if (!model) throw new Error(`pi-fast-models: ${PROVIDER}/${REAL} is missing. Update pi's model catalog.`);
+const fastId = (real: string) => `${real}-fast`;
+
+function realModel(ctx: ExtensionContext, id: string) {
+	const model = ctx.modelRegistry.find(PROVIDER, id);
+	if (!model) throw new Error(`pi-fast-models: ${PROVIDER}/${id} is missing. Update pi's model catalog.`);
 	return model;
 }
 
 export default function (pi: ExtensionAPI) {
 	let pendingFast = false;
 
-	const definition: ExtensionVirtualModel = {
+	const definition = (real: string, name: string): ExtensionVirtualModel => ({
 		provider: PROVIDER,
-		id: FAST,
-		name: "GPT-6.1 Sol Fast",
+		id: fastId(real),
+		name,
 		// Startup resolves --thinking before session_start; without this pi would clamp "high" to "low".
 		thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 		route(request, ctx) {
-			return { model: realModel(ctx), thinkingLevel: request.thinkingLevel };
+			return { model: realModel(ctx, real), thinkingLevel: request.thinkingLevel };
 		},
-	};
+	});
 
-	// Copy live limits and levels onto the fast model; re-registering also refreshes the selected model.
-	function syncMetadata(ctx: ExtensionContext) {
-		const model = realModel(ctx);
+	// Copy live limits and levels onto a fast model; re-registering also refreshes the selected model.
+	function syncMetadata(ctx: ExtensionContext, { real, name }: (typeof MODELS)[number]) {
+		const model = realModel(ctx, real);
 		pi.registerVirtualModel({
-			...definition,
+			...definition(real, name),
 			thinkingLevels: getSupportedThinkingLevels(model),
 			contextWindow: model.contextWindow,
 			maxTokens: model.maxTokens,
@@ -39,20 +43,24 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// Register before startup model selection; live metadata is available at session_start.
-	pi.registerVirtualModel(definition);
-	pi.on("session_start", (_event, ctx) => syncMetadata(ctx));
+	for (const { real, name } of MODELS) pi.registerVirtualModel(definition(real, name));
+	pi.on("session_start", (_event, ctx) => {
+		for (const fast of MODELS) syncMetadata(ctx, fast);
+	});
 	// Pi keeps the startup copy in its Ctrl+P list, so cycling back would restore 0 limits.
 	pi.on("model_select", ({ model }, ctx) => {
-		if (model.provider === PROVIDER && model.id === FAST) syncMetadata(ctx);
+		const fast = MODELS.find((m) => fastId(m.real) === model.id);
+		if (model.provider === PROVIDER && fast) syncMetadata(ctx, fast);
 	});
 
 	pi.on("turn_start", () => {
 		pendingFast = false;
 	});
 	pi.on("before_provider_request", (event, ctx) => {
-		if (ctx.model?.provider !== PROVIDER || ctx.model.id !== FAST) return;
+		if (ctx.model?.provider !== PROVIDER) return;
+		const fast = MODELS.find((m) => fastId(m.real) === ctx.model?.id);
 		const payload = event.payload as Record<string, unknown>;
-		if (payload.model !== REAL) return;
+		if (!fast || payload.model !== fast.real) return;
 		pendingFast = true;
 		// This Codex endpoint accepts priority, not the CLI's fast spelling.
 		return { ...payload, service_tier: "priority" };
@@ -62,8 +70,8 @@ export default function (pi: ExtensionAPI) {
 		if (message.role !== "assistant") return;
 		const wasFast = pendingFast;
 		pendingFast = false;
-		if (!wasFast || message.provider !== PROVIDER || message.model !== REAL) return;
-		const model = realModel(ctx);
+		if (!wasFast || message.provider !== PROVIDER || !MODELS.some((m) => m.real === message.model)) return;
+		const model = realModel(ctx, message.model);
 
 		// Rebase on token counts: pi may already have applied a provider tier multiplier.
 		const usage = { ...message.usage };
