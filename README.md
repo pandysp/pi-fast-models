@@ -2,7 +2,7 @@
 
 Adds `openai-codex/gpt-6.1-sol-fast` to [pi](https://pi.dev). Select it like any other model, or put it in your scoped models to use fast mode whenever you cycle to Sol. Normal Sol stays available.
 
-Requires **pi 1.2.0 or later** and an OpenAI Codex login with access to GPT-6.1 Sol. Tested on pi 1.2.0 and 1.3.0 with a ChatGPT Pro login.
+Requires **pi 1.3.0 or later** and an OpenAI Codex login with access to GPT-6.1 Sol. Tested on pi 1.3.0 with a ChatGPT Pro login.
 
 ## Install
 
@@ -41,7 +41,7 @@ The display always uses 2.5×. It therefore overstates the monetary surcharge if
 
 Pi's virtual model routes to the live `gpt-6.1-sol`. The request hook adds `service_tier: "priority"`. The tested Codex endpoint rejects `"fast"` even though OpenAI's own CLI uses that spelling.
 
-The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are populated before the first request.
+The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model, so auto-compaction and the context meter work.
 
 Other extensions that also change service tiers or costs can conflict. Use one fast-mode extension at a time.
 
@@ -53,7 +53,7 @@ npm run check
 npm test
 ```
 
-The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level, live limits, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. It also checks that an existing provider surcharge isn't applied twice. Temporary test files are removed afterward.
+The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level, live limits after switching models with Ctrl+P, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. It also checks that an existing provider surcharge isn't applied twice. Temporary test files are removed afterward.
 
 In three alternating runs of a small file-writing task, the fast variant took **38.7 s** median versus **44.8 s** for ordinary Sol. This is a small speed test, not a quality comparison or a speed guarantee.
 

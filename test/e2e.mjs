@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -36,7 +37,7 @@ export default function(pi) {
   });
 }`);
 
-function run(args, marker, requireTool = false) {
+function run(args, marker, expectFast, requireTool = false) {
   writeFileSync(log, "");
   const prompt = requireTool
     ? `Use bash to run printf '${marker}\\n', then reply with only ${marker}.`
@@ -68,6 +69,7 @@ function run(args, marker, requireTool = false) {
   const requests = records.filter(r => r.type === "request");
   assert.equal(requests.length, messages.length, "unexpected retries or missing requests");
   const isFast = selected.id === "gpt-6.1-sol-fast";
+  assert.equal(isFast, expectFast, `selected ${selected.id}`);
   if (isFast) assert.equal(selected.contextWindow, real.contextWindow, "selected model's initial limits");
   for (const r of requests) {
     assert.equal(r.model, real.id);
@@ -88,13 +90,45 @@ function run(args, marker, requireTool = false) {
   return messages;
 }
 
+// Ctrl+P cycling, through RPC: the fast model must keep live limits each time it is selected. No model calls.
+async function cycle() {
+  const pi = spawn("pi", ["--mode", "rpc", "--no-session", "--no-extensions", "-e", extension,
+    "--models", "openai-codex/gpt-6.1-sol:high,openai-codex/gpt-6.1-sol-fast:high", "--model", "openai-codex/gpt-6.1-sol"],
+    { cwd: temp, stdio: ["pipe", "pipe", "inherit"] });
+  const waiting = new Map();
+  let id = 0;
+  createInterface({ input: pi.stdout }).on("line", line => {
+    const msg = JSON.parse(line);
+    if (msg.type === "response") waiting.get(msg.id)?.(msg);
+  });
+  const send = type => new Promise(resolve => {
+    waiting.set(String(++id), resolve);
+    pi.stdin.write(JSON.stringify({ id: String(id), type }) + "\n");
+  });
+  try {
+    const real = (await send("get_state")).data.model;
+    for (let i = 0; i < 4; i++) {
+      assert.ok((await send("cycle_model")).success);
+      const state = (await send("get_state")).data;
+      assert.equal(state.model.id, i % 2 ? "gpt-6.1-sol" : "gpt-6.1-sol-fast");
+      assert.equal(state.model.contextWindow, real.contextWindow, `cycle ${i + 1}: ${state.model.id}`);
+      assert.equal(state.model.maxTokens, real.maxTokens);
+      assert.equal(state.thinkingLevel, "high");
+    }
+    console.log(`CYCLE_OK: 4 switches, fast model keeps ${real.contextWindow}/${real.maxTokens}`);
+  } finally {
+    pi.kill();
+  }
+}
+
 try {
-  const first = run(["--model", "openai-codex/gpt-6.1-sol-fast", "--session", session], "FAST_OK", true);
+  await cycle();
+  const first = run(["--model", "openai-codex/gpt-6.1-sol-fast", "--session", session], "FAST_OK", true, true);
   const persisted = jsonl(session).filter(e => e.type === "message" && e.message.role === "assistant").map(e => e.message);
   assert.deepEqual(persisted.map(m => m.usage), first.map(m => m.usage), "persisted cost differs from displayed cost");
-  run(["--session", session], "RESUME_OK");
-  run(["--model", "openai-codex/gpt-6.1-sol", "--no-session"], "NORMAL_OK");
-  console.log("PASS: tool continuation, priority payload, no double surcharge, persisted costs, resume, ordinary Sol unchanged");
+  run(["--session", session], "RESUME_OK", true);
+  run(["--model", "openai-codex/gpt-6.1-sol", "--no-session"], "NORMAL_OK", false);
+  console.log("PASS: model cycling, tool continuation, priority payload, no double surcharge, persisted costs, resume, ordinary Sol unchanged");
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

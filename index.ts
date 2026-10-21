@@ -26,10 +26,8 @@ export default function (pi: ExtensionAPI) {
 		},
 	};
 
-	// Register before startup model selection; live metadata is available at session_start.
-	pi.registerVirtualModel(definition);
-	pi.on("session_start", (_event, ctx) => {
-		pendingFast = false;
+	// Copy live limits and levels onto the fast model; re-registering also refreshes the selected model.
+	function syncMetadata(ctx: ExtensionContext) {
 		const model = realModel(ctx);
 		pi.registerVirtualModel({
 			...definition,
@@ -38,6 +36,14 @@ export default function (pi: ExtensionAPI) {
 			maxTokens: model.maxTokens,
 			input: model.input,
 		});
+	}
+
+	// Register before startup model selection; live metadata is available at session_start.
+	pi.registerVirtualModel(definition);
+	pi.on("session_start", (_event, ctx) => syncMetadata(ctx));
+	// Pi keeps the startup copy in its Ctrl+P list, so cycling back would restore 0 limits.
+	pi.on("model_select", ({ model }, ctx) => {
+		if (model.provider === PROVIDER && model.id === FAST) syncMetadata(ctx);
 	});
 
 	pi.on("turn_start", () => {
@@ -60,7 +66,7 @@ export default function (pi: ExtensionAPI) {
 		const model = realModel(ctx);
 
 		// Rebase on token counts: pi may already have applied a provider tier multiplier.
-		const usage = { ...message.usage, cost: { ...message.usage.cost } };
+		const usage = { ...message.usage };
 		const base = calculateCost(model, usage);
 		usage.cost = {
 			input: base.input * ALLOWANCE_MULTIPLIER,
