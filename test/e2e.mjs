@@ -97,12 +97,18 @@ async function cycle() {
     { cwd: temp, stdio: ["pipe", "pipe", "inherit"] });
   const waiting = new Map();
   let id = 0;
+  const failAll = error => { for (const { reject } of waiting.values()) reject(error); waiting.clear(); };
+  pi.on("error", failAll);
+  pi.on("exit", code => failAll(new Error(`pi rpc exited with ${code}`)));
+  const deadline = setTimeout(() => pi.kill(), 60_000);
   createInterface({ input: pi.stdout }).on("line", line => {
     const msg = JSON.parse(line);
-    if (msg.type === "response") waiting.get(msg.id)?.(msg);
+    if (msg.type !== "response") return;
+    waiting.get(msg.id)?.resolve(msg);
+    waiting.delete(msg.id);
   });
-  const send = type => new Promise(resolve => {
-    waiting.set(String(++id), resolve);
+  const send = type => new Promise((resolve, reject) => {
+    waiting.set(String(++id), { resolve, reject });
     pi.stdin.write(JSON.stringify({ id: String(id), type }) + "\n");
   });
   try {
@@ -117,6 +123,7 @@ async function cycle() {
     }
     console.log(`CYCLE_OK: 4 switches, fast model keeps ${real.contextWindow}/${real.maxTokens}`);
   } finally {
+    clearTimeout(deadline);
     pi.kill();
   }
 }
