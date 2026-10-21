@@ -32,7 +32,7 @@ export default function(pi) {
   });
   pi.on("before_provider_request", ({payload},ctx) => {
     log({type:"request", model:payload.model, tier:payload.service_tier,
-      selected:ctx.model.id});
+      effort:payload.reasoning?.effort, selected:ctx.model.id});
   });
 }`);
 
@@ -43,7 +43,7 @@ function run(args, marker, requireTool = false) {
     : `Reply with only ${marker}.`;
   const result = spawnSync("pi", [
     "--mode", "json", "--no-extensions", "--no-skills", "--no-prompt-templates",
-    "--no-context-files", "--no-mcp", "--tools", "bash", "--thinking", "low",
+    "--no-context-files", "--no-mcp", "--tools", "bash", "--thinking", "high",
     "-e", doubled, "-e", extension, "-e", observer, ...args, prompt,
   ], { cwd: temp, encoding: "utf8", timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
   assert.ifError(result.error);
@@ -72,6 +72,7 @@ function run(args, marker, requireTool = false) {
   for (const r of requests) {
     assert.equal(r.model, real.id);
     assert.equal(r.tier, isFast ? "priority" : undefined);
+    assert.equal(r.effort, "high", "--thinking high must survive startup");
   }
   for (const m of messages) {
     let total = 0;
