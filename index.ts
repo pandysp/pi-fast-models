@@ -2,7 +2,7 @@ import { calculateCost, getSupportedThinkingLevels } from "@earendil-works/pi-ai
 import type { ExtensionAPI, ExtensionContext, ExtensionVirtualModel } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER = "openai-codex";
-const REAL = "gpt-6.1-sol";
+const REAL = "gpt-6.2-sol";
 const FAST = `${REAL}-fast`;
 const ALLOWANCE_MULTIPLIER = 2.5;
 
@@ -18,7 +18,7 @@ export default function (pi: ExtensionAPI) {
 	const definition: ExtensionVirtualModel = {
 		provider: PROVIDER,
 		id: FAST,
-		name: "GPT-6.1 Sol Fast",
+		name: "GPT-6.2 Sol Fast",
 		// Startup resolves --thinking before session_start; without this pi would clamp "high" to "low".
 		thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 		route(request, ctx) {
