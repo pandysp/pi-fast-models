@@ -1,7 +1,7 @@
 {
 	"name": "pi-fast-models",
-	"version": "0.2.0",
-	"description": "Select GPT-6.2 Sol fast mode as a separate pi model, with allowance-adjusted cost estimates.",
+	"version": "0.3.0",
+	"description": "Select GPT-6.2 Sol and Astra fast mode as separate pi models, with allowance-adjusted cost estimates.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
