@@ -2,9 +2,9 @@
 
 Adds `openai-codex/gpt-6.2-sol-fast` and `openai-codex/gpt-6.2-astra-fast` to [pi](https://pi.dev). Select them like any other model, or put them in your scoped models to use fast mode whenever you cycle to Sol or Astra. Normal Sol and Astra stay available.
 
-Requires **pi 1.3.0 or later** and an OpenAI Codex login with access to GPT-6.2 Sol or Astra. Tested on pi 1.5.2 with a ChatGPT Pro login.
+Requires **pi 1.3.0 or later** and an OpenAI Codex login with access to GPT-6.2 Sol or Astra. Tested on pi 1.6.0 with a ChatGPT Pro login.
 
-Version 0.3.0 adds `gpt-6.2-astra-fast`. It also sets the fast tier in a provider wrapper, so other extensions' requests get it too.
+Version 0.3.0 adds `gpt-6.2-astra-fast`. Both GPT-6.2 fast aliases now show a 2× requested-Fast cost estimate instead of 2.5×.
 
 Version 0.2.0 moved from GPT-6.1 Sol to GPT-6.2 Sol: `gpt-6.1-sol-fast` is gone. Stay on `pi-fast-models@0.1.3` if you need it.
 
@@ -33,36 +33,30 @@ No `/fast` command or separate configuration. Only GPT-6.2 Sol and Astra are inc
 
 ## Cost display
 
-**The displayed dollar amount for fast replies is an allowance-adjusted estimate, not a bill.** The extension recalculates from token counts and the real model's base prices, then applies **2.5×**. It does not measure your remaining allowance or change billing.
+**This is an estimate at the requested Fast rate, not an observed debit.** [OpenAI’s speed multipliers](https://learn.chatgpt.com/docs/pricing) list Fast at **2× Standard** for GPT-6.2 Astra and Sol, for both included usage and purchased credits. The older 2.5× included-usage rate applied to earlier model generations. The extension recalculates each fast reply from its token counts and the real model’s base prices, then applies 2× once. It doesn’t read your balance or verify which tier the server billed.
 
-OpenAI distinguishes [included subscription usage from purchased credits](https://help.openai.com/en/articles/20001106-codex-rate-card):
-
-| Usage | Fast-mode multiplier |
-| --- | --- |
-| Included subscription allowance | 2.5× |
-| Purchased credits | 2× |
-
-The display always uses 2.5×. It therefore overstates the monetary surcharge if you pay with purchased credits. Ordinary Sol and Astra costs are untouched. Costs are saved in session history; `/session` groups both variants under the real model. Direct calls made by other extensions and compaction summaries use the fast tier but keep their normal cost display.
+Normal replies are unchanged. The estimate is saved in session history under the real model. Compaction summaries and direct calls by other extensions are outside this reply-cost adjustment.
 
 ## How it works
 
-Each virtual model routes to its live real model, `gpt-6.2-sol` or `gpt-6.2-astra`. The extension wraps pi's Codex transport. While a fast model is selected, the wrapper adds `service_tier: "priority"` to every request for its real model. That includes compaction and calls that other extensions make through pi, such as review heads. It doesn't matter whether those extensions load before or after pi-fast-models. The tested Codex endpoint rejects `"fast"` even though OpenAI's own CLI uses that spelling.
+Each alias routes to its real Codex model. The `before_provider_request` hook adds `service_tier: "priority"` to matching driver requests. The extension does not wrap the Codex provider or opt unrelated calls into Fast.
+
+**With pi-hydra:** put `pi-fast-models` **before** `pi-hydra` in the `packages` array in `~/.pi/agent/settings.json`, using your existing package sources. Register each only once. Hydra snapshots the driver payload in its own hook and replays it for heads. With this order, heads inherit priority; in the opposite order they miss the tier even though the driver still requests it. Other direct provider calls do not automatically inherit the driver’s tier.
 
 The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model. Tests verify that switching preserves the live model limits. Automatic compaction and the context meter display have not been tested.
 
 Other extensions that also change service tiers or costs can conflict. Use one fast-mode extension at a time.
-
-Provider wrappers don't chain. If another extension also wraps the `openai-codex` transport, only the one loaded last runs. If pi-fast-models' wrapper was replaced, it reports an error at session start and fast requests fail. It can't see the other direction, when it replaces a wrapper loaded before it.
 
 ## Verification
 
 ```sh
 npm ci
 npm run check
+npm run test:offline
 npm test
 ```
 
-The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level for Sol and Astra, live limits after switching models with Ctrl+P, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. It also checks that another extension's call to the real model gets the fast tier only while its fast model is selected, and that an existing provider surcharge isn't applied twice. Temporary test files are removed afterward.
+The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level for Sol and Astra, live limits after switching models with Ctrl+P, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. The offline tests check the tier seen by observers before and after the hook. The live test also checks that an existing provider surcharge is not applied twice. Temporary test files are removed afterward.
 
 In three alternating runs of a small file-writing task on GPT-6.1 Sol (not repeated for 6.2), the fast variant took **38.7 s** median versus **44.8 s** for ordinary Sol. On 2026-11-19 a raw request for about 700 output tokens, run six times each way, streamed GPT-6.2 Astra at a median of **34.5** tokens per second with priority and **27.5** without. The whole reply took about 22 s versus 28 s. In the same session GPT-6.2 Sol went from about 38 to 72 tokens per second. So Astra gains less than Sol. These are small speed tests, not a quality comparison or a speed guarantee. The server reports `service_tier: "default"` in its replies even for priority requests, so the speed difference is the only sign that the tier applies.
 

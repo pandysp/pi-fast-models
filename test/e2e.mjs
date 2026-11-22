@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, copyFileSync, symlinkSync, existsSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,28 +36,48 @@ export default function(pi) {
     log({type:"request", model:payload.model, tier:payload.service_tier,
       effort:payload.reasoning?.effort, selected:ctx.model.id});
   });
-  // Another extension's direct model call, like a review head. before_provider_request doesn't see these.
-  pi.on("agent_end", async (_,ctx) => {
-    for (const id of ${JSON.stringify(REALS)}) {
-      const model = ctx.modelRegistry.find("openai-codex", id);
-      const message = await ctx.modelRegistry.streamSimple(model,
-        {messages:[{role:"user", content:"Reply with only ok.", timestamp:Date.now()}]},
-        {reasoning:"low", onPayload: p => log({type:"side", model:p.model, tier:p.service_tier})}).result();
-      if (message.stopReason !== "stop") throw new Error("side call to "+id+" failed: "+message.errorMessage);
-    }
-  });
+
 }`);
+
+// Exercise real settings.json package discovery, not only -e argument order.
+// Reuse the caller's login without copying any credential into the fixture.
+const profile = join(temp, "profile");
+const capture = join(temp, "capture.ts");
+function packageAt(name, entry) {
+  const dir = join(temp, name);
+  mkdirSync(dir, {recursive: true});
+  writeFileSync(join(dir, "package.json"), JSON.stringify({name, pi:{extensions:["index.ts"]}}));
+  writeFileSync(join(dir, "index.ts"), readFileSync(entry));
+  return dir;
+}
+writeFileSync(capture, `import {appendFileSync} from "node:fs";
+export default pi => pi.on("before_provider_request", ({payload}) => {
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify({type:"capture", tier:payload.service_tier})+"\\n");
+});`);
+function orderConfig(fastFirst) {
+  mkdirSync(profile, {recursive:true});
+  const auth = join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "auth.json");
+  if (existsSync(auth) && !existsSync(join(profile,"auth.json"))) symlinkSync(auth, join(profile,"auth.json"));
+  const catalog = join(auth, "..", "models-store.json");
+  if (existsSync(catalog)) copyFileSync(catalog, join(profile,"models-store.json"));
+  const pair = [packageAt("fast", extension), packageAt("snapshot", capture)];
+  const packages = [...(fastFirst ? pair : pair.reverse()), packageAt("observer", observer)];
+  // No synthetic cost hook for these calls: verify the real 1× to 2× correction too.
+  writeFileSync(join(profile,"settings.json"), JSON.stringify({packages}));
+}
 
 function run(realId, args, marker, expectFast, requireTool = false) {
   writeFileSync(log, "");
   const prompt = requireTool
     ? `Use bash to run printf '${marker}\\n', then reply with only ${marker}.`
     : `Reply with only ${marker}.`;
+  const ordered = marker === "FAST_OK" || marker === "ASTRA_FAST_OK";
+  if (ordered) orderConfig(marker === "FAST_OK");
   const result = spawnSync("pi", [
-    "--mode", "json", "--no-extensions", "--no-skills", "--no-prompt-templates",
+    "--mode", "json", ...(ordered ? [] : ["--no-extensions"]), "--no-skills", "--no-prompt-templates",
     "--no-context-files", "--no-mcp", "--tools", "bash", "--thinking", "high",
-    "-e", doubled, "-e", extension, "-e", observer, ...args, prompt,
-  ], { cwd: temp, encoding: "utf8", timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
+    ...(ordered ? [] : ["-e", doubled, "-e", extension, "-e", observer]), ...args, prompt,
+  ], { cwd: temp, env: ordered ? {...process.env, PI_CODING_AGENT_DIR:profile} : process.env, encoding: "utf8", timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "", "unexpected pi errors");
@@ -85,6 +105,11 @@ function run(realId, args, marker, expectFast, requireTool = false) {
   const isFast = selected.id === `${realId}-fast`;
   assert.equal(isFast, expectFast, `selected ${selected.id}`);
   if (isFast) assert.equal(selected.contextWindow, real.contextWindow, "selected model's initial limits");
+  if (ordered) {
+    const snapshots = records.filter(r => r.type === "capture");
+    assert.equal(snapshots.length, requests.length);
+    for (const r of snapshots) assert.equal(r.tier, marker === "FAST_OK" ? "priority" : undefined);
+  }
   for (const r of requests) {
     assert.equal(r.model, real.id);
     assert.equal(r.tier, isFast ? "priority" : undefined);
@@ -93,18 +118,14 @@ function run(realId, args, marker, expectFast, requireTool = false) {
   for (const m of messages) {
     let total = 0;
     for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
-      const expected = m.usage[key] * real.cost[key] / 1e6 * (isFast ? 2.5 : 1);
+      const expected = m.usage[key] * real.cost[key] / 1e6 * (isFast ? 2 : 1);
       assert.ok(Math.abs(m.usage.cost[key] - expected) < 1e-12,
         `${key}: got ${m.usage.cost[key]}, expected ${expected}`);
       total += expected;
     }
     assert.ok(Math.abs(m.usage.cost.total - total) < 1e-12);
   }
-  // Only the selected fast model's real model gets priority, also for other extensions' calls.
-  const side = records.filter(r => r.type === "side");
-  assert.deepEqual(side.map(r => r.model), REALS, "extension calls");
-  for (const r of side) assert.equal(r.tier, isFast && r.model === realId ? "priority" : undefined, `extension call to ${r.model}`);
-  console.log(`${marker}: ${messages.length} ${realId} replies, ${isFast ? "priority / 2.5×" : "standard / 1×"}, extension calls ${side.map(r => `${r.model}:${r.tier ?? "standard"}`).join(" ")}, live limits ${fast.contextWindow}/${fast.maxTokens}`);
+  console.log(`${marker}: ${messages.length} replies, ${isFast ? "priority / 2×" : "standard / 1×"}`);
   return messages;
 }
 
@@ -153,8 +174,9 @@ try {
   assert.deepEqual(persisted.map(m => m.usage), first.map(m => m.usage), "persisted cost differs from displayed cost");
   run("gpt-6.2-sol", ["--session", session], "RESUME_OK", true);
   run("gpt-6.2-astra", ["--model", "openai-codex/gpt-6.2-astra-fast", "--no-session"], "ASTRA_FAST_OK", true);
+  run("gpt-6.2-astra", ["--model", "openai-codex/gpt-6.2-astra", "--no-session"], "ASTRA_NORMAL_OK", false);
   run("gpt-6.2-sol", ["--model", "openai-codex/gpt-6.2-sol", "--no-session"], "NORMAL_OK", false);
-  console.log("PASS: model cycling, tool continuation, priority payload, extension calls, no double surcharge, persisted costs, resume, Astra fast, ordinary Sol unchanged");
+  console.log("PASS: model cycling, tool continuation, priority payload, no double surcharge, persisted costs, resume, Astra fast, ordinary Sol unchanged");
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

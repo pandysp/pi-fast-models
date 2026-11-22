@@ -23,6 +23,7 @@ jobs:
       - run: npm ci
       - run: npm ls --depth=0
       - run: npm run check
+      - run: npm run test:offline
       # npm test needs a real pi with a Codex login: run it locally before a release.
 
   publish:
@@ -43,3 +44,14 @@ jobs:
       - name: Tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm publish --provenance --access public
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the GitHub Release after npm publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
