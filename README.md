@@ -43,7 +43,7 @@ Each alias routes to its real Codex model. The `before_provider_request` hook ad
 
 **With pi-hydra:** put `pi-fast-models` **before** `pi-hydra` in the `packages` array in `~/.pi/agent/settings.json`, using your existing package sources. Register each only once. Hydra snapshots the driver payload in its own hook and replays it for heads. With this order, heads inherit priority; in the opposite order they miss the tier even though the driver still requests it. Other direct provider calls do not automatically inherit the driver’s tier.
 
-The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. Until then the model accepts every thinking level, so `--thinking high` at startup isn't lowered. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model. Tests verify that switching preserves the live model limits. Automatic compaction and the context meter display have not been tested.
+The model's context window, output limit and supported thinking levels come from the live catalog at session start, including your `models.json` overrides. The alias preserves pi’s thinking-level selection at startup. Each request resolves the real model again. `pi --list-models` runs before session start and shows unknown limits (`0`) for the virtual entry. In a session the limits are filled in before the first request and again each time you switch to the fast model. Tests verify that switching preserves the live model limits. Automatic compaction and the context meter display have not been tested.
 
 Other extensions that also change service tiers or costs can conflict. Use one fast-mode extension at a time.
 
@@ -58,7 +58,16 @@ npm test
 
 The end-to-end test launches real pi processes and uses your Codex login. It consumes plan usage. It checks the sent model, tier and thinking level for Sol and Astra, live limits after switching models with Ctrl+P, a tool round trip, persisted costs, resuming the fast selection and ordinary Sol. The offline tests check the tier seen by observers before and after the hook. The live test also checks that an existing provider surcharge is not applied twice. Temporary test files are removed afterward.
 
-In three alternating runs of a small file-writing task on GPT-6.1 Sol (not repeated for 6.2), the fast variant took **38.7 s** median versus **44.8 s** for ordinary Sol. On 2026-11-19 a raw request for about 700 output tokens, run six times each way, streamed GPT-6.2 Astra at a median of **34.5** tokens per second with priority and **27.5** without. The whole reply took about 22 s versus 28 s. In the same session GPT-6.2 Sol went from about 38 to 72 tokens per second. So Astra gains less than Sol. These are small speed tests, not a quality comparison or a speed guarantee. The server reports `service_tier: "default"` in its replies even for priority requests, so the speed difference is the only sign that the tier applies.
+## How much faster?
+
+| Task | Astra: less median wait | Sol: less median wait |
+| --- | ---: | ---: |
+| Copy fixed text | 28% | 28% |
+| Solve a counting problem | 22% | 35% |
+
+Fast won all four matched runs for each model on both tasks. These were small tests without tools, not a speed guarantee. [Method, run-level data, and earlier results](https://github.com/pandysp/pi-fast-models/blob/main/docs/benchmarks.md).
+
+<!-- 2026-11-22 03:14 UTC · pi session 01a20104-d448-7212-94ef-54264430e586 -->
 
 ## License
 
